@@ -17,7 +17,7 @@ using namespace ROOT::VecOps;
 const double MUON_MASS = 0.1056583745;
 
 // ============================================================
-// 筛选函数（analysis cuts）
+// 原始筛选函数
 // ============================================================
 RVec<ROOT::Math::PxPyPzMVector> get_mumu_candidates(
     const RVec<float>& muPx,
@@ -43,7 +43,6 @@ RVec<ROOT::Math::PxPyPzMVector> get_mumu_candidates(
     }
 
     for (size_t i = 0; i < nPairs; ++i) {
-        // Trigger
         bool TrigDiMuon_4_3 = false;
         for (size_t t = 0; t < TrigNames.size(); ++t) {
             if (TrigNames[t].find("HLT_DoubleMu4_3_LowMass_v") != std::string::npos && TrigRes[t] == 1) {
@@ -83,10 +82,10 @@ RVec<ROOT::Math::PxPyPzMVector> get_mumu_candidates(
 
         bool passMatch = (muIsJpsiTrigMatch[idx1] == 1 && muIsJpsiTrigMatch[idx2] == 1);
 
-        bool passCtau = (mumuonlyctau[i] >= -0.03 && mumuonlyctau[i] <= 0.12);
+bool passCtau = (mumuonlyctau[i] >= -0.03 && mumuonlyctau[i] <= 0.12);
 
         bool pass_all = TrigDiMuon_4_3 && pass1 && pass2 && oppositeCharge && passMass &&
-                         passSoft && passVtx && passDphi && passMatch && passCtau;
+                         passSoft && passVtx && passDphi && passMatch &&passCtau;
 
         if (pass_all) {
             candidates.push_back(dimu);
@@ -101,7 +100,7 @@ RVec<ROOT::Math::PxPyPzMVector> get_mumu_candidates(
 void make_mc_efficiency_2D() {
     gStyle->SetOptStat(0);
     gStyle->SetPaintTextFormat("0.6f");
-    gStyle->SetPalette(kRainbow);
+    gStyle->SetPalette(kRainBow);
 
     ROOT::EnableImplicitMT(8);
 
@@ -110,54 +109,49 @@ void make_mc_efficiency_2D() {
     ROOT::RDataFrame df("mkcands/X_data", fileName);
 
     // ============================================================
-    // 筛选有真值 J/psi 的事件
+    // 分母：MC truth J/psi
     // ============================================================
-    auto df_with_gen = df.Filter("Offical_Pythia_J_MC_xPx.size()>0");
-
-    // ============================================================
-    // 分桶
-    // ============================================================
-    std::vector<double> yBins = {0.0, 0.3, 0.6, 0.9, 1.2, 1.8, 2.4};
-    std::vector<double> ptBins = {
-        10.0, 10.5, 11.0, 11.5, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0,
-        18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0,
-        28.0, 29.0, 30.0, 32.0, 34.0, 36.0, 38.0, 42.0, 46.0, 50.0,
-        60.0, 75.0, 95.0, 120.0
-    };
-    int nYBins = yBins.size() - 1;
-    int nPtBins = ptBins.size() - 1;
-
-    // ============================================================
-    // 分母：所有重建候选（不加任何筛选）
-    // ============================================================
-    auto df_den = df_with_gen
-        .Define("denPt", [](const RVec<float>& px, const RVec<float>& py) {
-            RVec<float> pts;
-            for (size_t i = 0; i < px.size(); ++i) {
-                pts.push_back(sqrt(px[i]*px[i] + py[i]*py[i]));
+    auto df_gen =
+        df.Filter("Offical_Pythia_J_MC_xPx.size()>0")
+        .Define(
+            "genP4",
+            [](const RVec<float>& px, const RVec<float>& py,
+               const RVec<float>& pz, const RVec<float>& m) {
+                RVec<ROOT::Math::PxPyPzMVector> vec;
+                for (size_t i = 0; i < px.size(); ++i) {
+                    vec.push_back(ROOT::Math::PxPyPzMVector(px[i], py[i], pz[i], m[i]));
+                }
+                return vec;
+            },
+            {
+                "Offical_Pythia_J_MC_xPx",
+                "Offical_Pythia_J_MC_xPy",
+                "Offical_Pythia_J_MC_xPz",
+                "Offical_Pythia_J_MC_xM"
             }
-            return pts;
-        }, {"mumuonlyPx", "mumuonlyPy"})
-        .Define("denAbsY", [](const RVec<float>& px, const RVec<float>& py,
-                              const RVec<float>& pz, const RVec<float>& mass) {
-            RVec<float> ys;
-            for (size_t i = 0; i < px.size(); ++i) {
-                ROOT::Math::PxPyPzMVector p4(px[i], py[i], pz[i], mass[i]);
-                ys.push_back(fabs(p4.Rapidity()));
-            }
-            return ys;
-        }, {"mumuonlyPx", "mumuonlyPy", "mumuonlyPz", "mumuonlyMass"});
-
-    auto hDen = df_den.Histo2D(
-        {"hDen", "Reconstructed Candidates (with gen truth);|y|;p_{T} [GeV]",
-         nYBins, yBins.data(), nPtBins, ptBins.data()},
-        "denAbsY", "denPt"
-    );
+        )
+        .Define(
+            "genJpsiPt",
+            [](const RVec<ROOT::Math::PxPyPzMVector>& v) {
+                RVec<float> pts;
+                for (auto& p : v) pts.push_back(static_cast<float>(p.pt()));
+                return pts;
+            },
+            {"genP4"}
+        )
+        .Define(
+            "genJpsiAbsY",
+            [](const RVec<ROOT::Math::PxPyPzMVector>& v) {
+                RVec<float> ys;
+                for (auto& p : v) ys.push_back(static_cast<float>(fabs(p.Rapidity())));
+                return ys;
+            },
+            {"genP4"}
+        );
 
     // ============================================================
-    // 分子：在分母基础上加 analysis cuts
-    // ============================================================
-    auto df_ana = df_den.Define(
+    // 分子：在分母基础上加 analysis
+    auto df_ana = df_gen.Define(
         "mumuCandidates",
         get_mumu_candidates,
         {
@@ -179,6 +173,28 @@ void make_mc_efficiency_2D() {
             return ys;
         }, {"mumuCandidates"});
 
+    // ============================================================
+    // 分桶
+    // ============================================================
+    std::vector<double> yBins = {0.0, 0.3, 0.6, 0.9, 1.2, 1.8, 2.4};
+    std::vector<double> ptBins = {
+        10.0,10.5,  11.0,11.5, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0,
+        18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0,
+        28.0, 29.0, 30.0, 32.0, 34.0, 36.0, 38.0, 42.0, 46.0, 50.0,
+        60.0, 75.0, 95.0, 120.0
+    };
+    int nYBins = yBins.size() - 1;
+    int nPtBins = ptBins.size() - 1;
+
+    // ============================================================
+    // 填充直方图
+    // ============================================================
+    auto hDen = df_gen.Histo2D(
+        {"hDen", "MC Truth;|y|;p_{T} [GeV]",
+         nYBins, yBins.data(), nPtBins, ptBins.data()},
+        "genJpsiAbsY", "genJpsiPt"
+    );
+
     auto hNum = df_ana_vars.Histo2D(
         {"hNum", "Analysis;|y|;p_{T} [GeV]",
          nYBins, yBins.data(), nPtBins, ptBins.data()},
@@ -191,13 +207,13 @@ void make_mc_efficiency_2D() {
     TH2D* hDen_ptr = (TH2D*)hDen.GetPtr();
     TH2D* hNum_ptr = (TH2D*)hNum.GetPtr();
 
-    std::cout << "\nDenominator entries: " << hDen_ptr->GetEntries() << std::endl;
-    std::cout << "Numerator entries:   " << hNum_ptr->GetEntries() << std::endl;
+    std::cout << "\nMC Truth entries: " << hDen_ptr->GetEntries() << std::endl;
+    std::cout << "Analysis entries:  " << hNum_ptr->GetEntries() << std::endl;
 
-    if (hDen_ptr->GetEntries() == 0) {
-        std::cerr << "ERROR: Denominator histogram is empty!" << std::endl;
-        return;
-    }
+//    if (hDen_ptr->GetEntries() == 0) {
+//        std::cerr << "ERROR: MC Truth histogram is empty!" << std::endl;
+//        return;
+//    }
 
     TH2D* hEff = (TH2D*)hNum_ptr->Clone("hEff");
     hEff->SetTitle("J/#psi efficiency;|y|;p_{T} [GeV]");
@@ -217,12 +233,13 @@ void make_mc_efficiency_2D() {
     std::cout << "Maximum efficiency: " << maxEff << std::endl;
 
     // ============================================================
-    // 输出效率表格到 txt
+    // 输出效率表格到 txt（修正循环变量对应关系）
     // ============================================================
     std::ofstream fout("efficiency_table.txt");
     fout << "# y_low y_high pt_low pt_high efficiency error\n";
     fout << std::fixed << std::setprecision(6);
 
+    // ix 对应 |y| 轴（X轴），iy 对应 pT 轴（Y轴）
     for (int ix = 1; ix <= nYBins; ++ix) {
         double y_low  = yBins[ix-1];
         double y_high = yBins[ix];
@@ -264,5 +281,7 @@ void make_mc_efficiency_2D() {
         delete c;
     };
 
-    draw(hEff, "H2D_efficiency");
+  //  draw(hDen_ptr, "H2D_mctruth");
+  //  draw(hNum_ptr, "H2D_analysis");
+    draw(hEff,     "H2D_efficiency");
 }
