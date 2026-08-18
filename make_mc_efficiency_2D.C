@@ -100,7 +100,7 @@ bool passCtau = (mumuonlyctau[i] >= -0.03 && mumuonlyctau[i] <= 0.12);
 void make_mc_efficiency_2D() {
     gStyle->SetOptStat(0);
     gStyle->SetPaintTextFormat("0.6f");
-    gStyle->SetPalette(kRainBow);
+    gStyle->SetPalette(kRainbow);
 
     ROOT::EnableImplicitMT(8);
 
@@ -111,7 +111,7 @@ void make_mc_efficiency_2D() {
     // ============================================================
     // 分母：MC truth J/psi
     // ============================================================
-    auto df_gen =
+/*    auto df_gen =
         df.Filter("Offical_Pythia_J_MC_xPx.size()>0")
         .Define(
             "genP4",
@@ -147,11 +147,33 @@ void make_mc_efficiency_2D() {
                 return ys;
             },
             {"genP4"}
-        );
+        );*/
+
+auto df_with_gen = df.Filter("Offical_Pythia_J_MC_xPx.size()>0");
+
+auto df_den = df_with_gen
+    .Define("denPt", [](const RVec<float>& px, const RVec<float>& py) {
+        RVec<float> pts;
+        for (size_t i = 0; i < px.size(); ++i) {
+            pts.push_back(sqrt(px[i]*px[i] + py[i]*py[i]));
+        }
+        return pts;
+    }, {"mumuonlyPx", "mumuonlyPy"})
+    .Define("denAbsY", [](const RVec<float>& px, const RVec<float>& py,
+                          const RVec<float>& pz, const RVec<float>& mass) {
+        RVec<float> ys;
+        for (size_t i = 0; i < px.size(); ++i) {
+            ROOT::Math::PxPyPzMVector p4(px[i], py[i], pz[i], mass[i]);
+            ys.push_back(fabs(p4.Rapidity()));
+        }
+        return ys;
+    }, {"mumuonlyPx", "mumuonlyPy", "mumuonlyPz", "mumuonlyMass"});
 
     // ============================================================
     // 分子：在分母基础上加 analysis
-    auto df_ana = df_gen.Define(
+ //   auto df_ana = df_gen.Define(
+
+auto df_ana = df_den.Define(
         "mumuCandidates",
         get_mumu_candidates,
         {
@@ -189,11 +211,17 @@ void make_mc_efficiency_2D() {
     // ============================================================
     // 填充直方图
     // ============================================================
-    auto hDen = df_gen.Histo2D(
+ /*   auto hDen = df_gen.Histo2D(
         {"hDen", "MC Truth;|y|;p_{T} [GeV]",
          nYBins, yBins.data(), nPtBins, ptBins.data()},
         "genJpsiAbsY", "genJpsiPt"
-    );
+    );*/
+
+auto hDen = df_den.Histo2D(
+    {"hDen", "Reconstructed Candidates (with gen truth);|y|;p_{T} [GeV]",
+     nYBins, yBins.data(), nPtBins, ptBins.data()},
+    "denAbsY", "denPt"
+);
 
     auto hNum = df_ana_vars.Histo2D(
         {"hNum", "Analysis;|y|;p_{T} [GeV]",
@@ -207,7 +235,7 @@ void make_mc_efficiency_2D() {
     TH2D* hDen_ptr = (TH2D*)hDen.GetPtr();
     TH2D* hNum_ptr = (TH2D*)hNum.GetPtr();
 
-    std::cout << "\nMC Truth entries: " << hDen_ptr->GetEntries() << std::endl;
+  std::cout << "\nDenominator entries: " << hDen_ptr->GetEntries() << std::endl;
     std::cout << "Analysis entries:  " << hNum_ptr->GetEntries() << std::endl;
 
 //    if (hDen_ptr->GetEntries() == 0) {
